@@ -1,77 +1,73 @@
-// backend/src/controllers/message.controller.js
-import User from "../models/user.model.js";
 import Message from "../models/message.model.js";
-import cloudinary from "../lib/cloudinary.js";
-import { getReceiverSocketId, io } from "../lib/socket.js";
+import User from "../models/user.model.js";
+import { getReceiverSocketId, io } from "../socket/socket.js";
 
-// 👥 Users list for sidebar
-export const getUsersForSidebar = async (req, res) => {
-  try {
-    const loggedInUserId = req.user._id;
-    const filteredUsers = await User.find({
-      _id: { $ne: loggedInUserId },
-    }).select("-password");
-
-    res.status(200).json(filteredUsers);
-  } catch (error) {
-    console.error("Error in getUsersForSidebar: ", error.message);
-    res.status(500).json({ message: "Internal server error" });
-  }
-};
-
-// 💬 Get conversation messages
-export const getMessages = async (req, res) => {
-  try {
-    const { id: userToChatId } = req.params;
-    const myId = req.user._id;
-
-    const messages = await Message.find({
-      $or: [
-        { senderId: myId, receiverId: userToChatId },
-        { senderId: userToChatId, receiverId: myId },
-      ],
-      deletedFor: { $ne: myId }, // jis user ne delete for me kiya usko nahin dikhega
-    });
-
-    res.status(200).json(messages);
-  } catch (error) {
-    console.log("Error in getMessages controller: ", error.message);
-    res.status(500).json({ message: "Internal server error" });
-  }
-};
-
-// 📩 Send message (with image support)
+// 📩 Send Message
 export const sendMessage = async (req, res) => {
   try {
-    const { text, image } = req.body;
-    const { id: receiverId } = req.params;
     const senderId = req.user._id;
+    const receiverId = req.params.id;
+    const { message } = req.body;
 
-    let imageUrl;
-    if (image) {
-      const uploadResponse = await cloudinary.uploader.upload(image);
-      imageUrl = uploadResponse.secure_url;
+    if (!message || message.trim() === "") {
+      return res.status(400).json({ message: "Message cannot be empty" });
     }
 
     const newMessage = await Message.create({
-      senderId,
-      receiverId,
-      text,
-      image: imageUrl,
-      seen: false,
-      isDeleted: false,
-      deletedFor: [],
+      sender: senderId,
+      receiver: receiverId,
+      message,
     });
 
+    // Send realtime msg to receiver
     const receiverSocketId = getReceiverSocketId(receiverId);
     if (receiverSocketId) {
-      io.to(receiverSocketId).emit("newMessage", newMessage);
+      io.to(receiverSocketId).emit("newMessage", {
+        message: newMessage,
+        from: senderId,
+      });
     }
 
     res.status(201).json(newMessage);
   } catch (error) {
-    console.log("Error in sendMessage controller: ", error.message);
-    res.status(500).json({ message: "Internal server error" });
+    console.error("sendMessage error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// 💬 Get Messages
+export const getMessages = async (req, res) => {
+  const userId = req.user._id;
+  const chatUserId = req.params.id;
+
+  try {
+    const messages = await Message.find({
+      $or: [
+        { sender: userId, receiver: chatUserId },
+        { sender: chatUserId, receiver: userId },
+      ],
+    }).sort({ createdAt: 1 });
+
+    res.status(200).json(messages);
+  } catch (error) {
+    console.error("getMessages error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// 🧑 Users List for Sidebar
+export const getUsersForSidebar = async (req, res) => {
+  try {
+    const loggedInUserId = req.user._id;
+
+    const users = await User.find({ _id: { $ne: loggedInUserId } }).select(
+      "-password"
+    );
+
+    res.status(200).json(users);
+  } catch (error) {
+    console.error("getUsersSidebar error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
   }
 };
 
@@ -80,93 +76,68 @@ export const markMessageAsSeen = async (req, res) => {
   try {
     const messageId = req.params.id;
 
-    const updatedMessage = await Message.findByIdAndUpdate(
+    const updated = await Message.findByIdAndUpdate(
       messageId,
       { seen: true },
       { new: true }
     );
 
-    if (!updatedMessage) {
-      return res.status(404).json({ message: "Message not found" });
-    }
-
-    const senderSocketId = getReceiverSocketId(
-      updatedMessage.senderId.toString()
-    );
-    if (senderSocketId) {
-      // pura updated message bhej rahe hain
-      io.to(senderSocketId).emit("messageSeen", updatedMessage);
-    }
-
-    res.status(200).json(updatedMessage);
+    res.status(200).json(updated);
   } catch (error) {
-    console.log("Error in markMessageAsSeen controller: ", error.message);
-    res.status(500).json({ message: "Internal server error" });
+    console.error("seen error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
   }
 };
 
-// 🗑 Delete for me (sirf current user ke liye hide)
+// ❌ Delete for Me
 export const deleteMessageForMe = async (req, res) => {
   try {
     const messageId = req.params.id;
     const userId = req.user._id;
 
-    const message = await Message.findById(messageId);
+    const msg = await Message.findById(messageId);
 
-    if (!message) {
-      return res.status(404).json({ message: "Message not found" });
-    }
+    if (!msg) return res.status(404).json({ message: "Message not found" });
 
-    if (!message.deletedFor.includes(userId)) {
-      message.deletedFor.push(userId);
-      await message.save();
-    }
+    // Soft delete: mark message hidden for that user
+    if (msg.sender.toString() === userId.toString()) msg.senderDeleted = true;
+    if (msg.receiver.toString() === userId.toString()) msg.receiverDeleted = true;
 
-    res.status(200).json({ success: true });
+    await msg.save();
+
+    res.status(200).json({ message: "Deleted for you" });
   } catch (error) {
-    console.log("Error in deleteMessageForMe controller: ", error.message);
-    res.status(500).json({ message: "Internal server error" });
+    console.error("delete for me error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
   }
 };
 
-// 🗑 Delete for everyone (real-time)
+// ❌ Delete for Everyone (Realtime)
 export const deleteMessageForEveryone = async (req, res) => {
   try {
     const messageId = req.params.id;
     const userId = req.user._id;
 
-    const message = await Message.findById(messageId);
+    const msg = await Message.findById(messageId);
 
-    if (!message) {
-      return res.status(404).json({ message: "Message not found" });
+    if (!msg) return res.status(404).json({ message: "Message not found" });
+
+    if (msg.sender.toString() !== userId.toString()) {
+      return res.status(403).json({ message: "Unauthorized action" });
     }
 
-    // sirf sender hi delete for everyone kar sakta hai
-    if (message.senderId.toString() !== userId.toString()) {
-      return res.status(403).json({
-        message: "You are not allowed to delete this message for everyone",
-      });
-    }
+    await msg.deleteOne();
 
-    message.isDeleted = true;
-    message.text = "";
-    message.image = null;
-    await message.save();
+    // Notify both users through socket
+    const receiverSocketId = getReceiverSocketId(msg.receiver);
+    const senderSocketId = getReceiverSocketId(msg.sender);
 
-    const receiverSocketId = getReceiverSocketId(
-      message.receiverId.toString()
-    );
-    const senderSocketId = getReceiverSocketId(message.senderId.toString());
+    if (receiverSocketId) io.to(receiverSocketId).emit("messageDeleted", messageId);
+    if (senderSocketId) io.to(senderSocketId).emit("messageDeleted", messageId);
 
-    [receiverSocketId, senderSocketId].forEach((sid) => {
-      if (sid) {
-        io.to(sid).emit("messageDeleted", { messageId: message._id });
-      }
-    });
-
-    res.status(200).json({ success: true });
+    res.status(200).json({ message: "Deleted for everyone", id: messageId });
   } catch (error) {
-    console.log("Error in deleteMessageForEveryone controller: ", error.message);
-    res.status(500).json({ message: "Internal server error" });
+    console.error("delete everyone error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
   }
 };
