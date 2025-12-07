@@ -6,7 +6,7 @@ import {
   sendMessage,
   markMessageAsSeen,
   deleteMessageForMe,
-  deleteMessageForEveryone,
+  deleteMessageForEveryone
 } from "../controllers/message.controller.js";
 
 const router = express.Router();
@@ -15,8 +15,6 @@ router.get("/users", protectRoute, getUsersForSidebar);
 router.get("/:id", protectRoute, getMessages);
 router.post("/send/:id", protectRoute, sendMessage);
 router.put("/seen/:id", protectRoute, markMessageAsSeen);
-
-// 🗑 delete routes
 router.delete("/:id/me", protectRoute, deleteMessageForMe);
 router.delete("/:id/everyone", protectRoute, deleteMessageForEveryone);
 
