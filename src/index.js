@@ -12,6 +12,9 @@ dotenv.config();
 // Middleware
 app.use(express.json());
 app.use(cookieParser());
+
+app.set("trust proxy", 1);
+
 app.use(cors({
   origin: [
     "http://localhost:5173",

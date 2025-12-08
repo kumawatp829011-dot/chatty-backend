@@ -12,6 +12,7 @@ const generateTokenAndSetCookie = (userId, res) => {
     httpOnly: true,
     secure: true, // Localhost me false rakho
     sameSite: "none",
+    path: "/",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
