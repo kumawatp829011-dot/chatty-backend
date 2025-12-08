@@ -1,29 +1,35 @@
 import express from "express";
-import cors from "cors";
 import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
-import { connectDB } from "./lib/db.js";
-import authRoutes from "./routes/auth.route.js";
+import cors from "cors";
+import mongoose from "mongoose";
 import messageRoutes from "./routes/message.route.js";
-import { app, server } from "./lib/socket.js"; // 👈 SINGLE SERVER USED
+import authRoutes from "./routes/auth.route.js";
+import { app, server } from "./lib/socket.js";
 
 dotenv.config();
-connectDB();
 
-app.use(cors({
-  origin: [
-    "http://localhost:5173",
-    "https://chatty-frontend-lac.vercel.app"
-  ],
-  credentials: true
-}));
-
+// Middleware
 app.use(express.json());
 app.use(cookieParser());
+app.use(cors({
+    origin: [
+        "http://localhost:5173",
+        "https://chatty-frontend-lac.vercel.app"
+    ],
+    credentials: true
+}));
 
 // Routes
-app.use("/api/auth", authRoutes);
 app.use("/api/messages", messageRoutes);
+app.use("/api/auth", authRoutes);
 
-const PORT = process.env.PORT || 5050;
-server.listen(PORT, () => console.log(`🚀 Server running on ${PORT}`));
+// MongoDB connection
+mongoose.connect(process.env.MONGO_URI)
+.then(() => {
+    console.log("MongoDB Connected");
+    server.listen(process.env.PORT || 5000, () =>
+        console.log(`🚀 Server running @ PORT ${process.env.PORT}`)
+    );
+})
+.catch((err) => console.log("MongoDB Error:", err));

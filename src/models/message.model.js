@@ -7,7 +7,7 @@ const messageSchema = new mongoose.Schema(
     message: { type: String },
     image: { type: String },
     seen: { type: Boolean, default: false },
-    isDeleted: { type: Boolean, default: false }
+    isDeleted: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

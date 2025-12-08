@@ -10,9 +10,9 @@ const generateTokenAndSetCookie = (userId, res) => {
 
   res.cookie("jwt", token, {
     httpOnly: true,
-    secure: true,      // For production HTTPS
-    sameSite: "none",  // Required for cross-site cookies (Vercel -> Render)
-    maxAge: 15 * 24 * 60 * 60 * 1000,
+    secure: false, // Localhost me false rakho
+    sameSite: "lax",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
   return token;
@@ -29,9 +29,7 @@ export const signup = async (req, res) => {
 
     const userExists = await User.findOne({ email });
     if (userExists) {
-      return res
-        .status(400)
-        .json({ message: "Email already registered" });
+      return res.status(400).json({ message: "Email already registered" });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
